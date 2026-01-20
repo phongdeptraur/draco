@@ -1,5 +1,6 @@
 -- Blox Fruits: SetTeam MARINES -> Wait char -> Run Script A ALWAYS
 -- Then: if no Dragon Talon -> TP + Tween (lagback retry) -> BuyDragonTalon
+-- After: Check Mastery Dragon Talon (equip + read UI). If mastery <= 500 -> run Script B.
 
 repeat task.wait() until game:IsLoaded()
 
@@ -118,50 +119,156 @@ local function tweenToWithLagback(startVec, targetVec, speed, lagBackThreshold)
     end
 end
 
--- ===== Script A (ALWAYS RUN) =====
+-- ===== Small popup (3s) =====
+local function popup3s(text)
+    local pg = lp:FindFirstChild("PlayerGui")
+    if not pg then return end
+
+    local sg = Instance.new("ScreenGui")
+    sg.ResetOnSpawn = false
+    sg.Name = "DT_MASTERY_POPUP"
+    sg.Parent = pg
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Parent = sg
+    lbl.Size = UDim2.fromScale(0.65, 0.09)
+    lbl.Position = UDim2.fromScale(0.175, 0.45)
+    lbl.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    lbl.BackgroundTransparency = 0.25
+    lbl.TextColor3 = Color3.fromRGB(0,255,0)
+    lbl.TextScaled = true
+    lbl.Font = Enum.Font.SourceSansBold
+    lbl.BorderSizePixel = 0
+    lbl.Text = tostring(text)
+
+    task.delay(3, function()
+        pcall(function() sg:Destroy() end)
+    end)
+end
+
+-- ===== Mastery check (equip + read UI) =====
+local function equipDragonTalon()
+    local ch, hum = waitChar()
+    local bp = lp:FindFirstChildOfClass("Backpack")
+    if not bp then return false end
+
+    local tool = bp:FindFirstChild("Dragon Talon") or ch:FindFirstChild("Dragon Talon")
+    if not tool then return false end
+
+    hum:EquipTool(tool)
+    return true
+end
+
+local function parseMasteryFromText(txt)
+    -- expect like: "Mastery 600 (MAX)" or "Mastery 432"
+    if type(txt) ~= "string" then return nil end
+    local n = string.match(txt, "Mastery%s+(%d+)")
+    return n and tonumber(n) or nil
+end
+
+local function findMasteryLine(timeoutSec)
+    local pg = lp:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+
+    local deadline = os.clock() + (timeoutSec or 2.0)
+    while os.clock() < deadline do
+        for _, gui in ipairs(pg:GetDescendants()) do
+            if gui:IsA("TextLabel") or gui:IsA("TextButton") then
+                local t = gui.Text
+                if t and string.find(t, "Mastery") then
+                    return t
+                end
+            end
+        end
+        task.wait(0.08)
+    end
+    return nil
+end
+
+local function checkDragonTalonMastery()
+    if not equipDragonTalon() then
+        setStatus("MASTERY", "Dragon Talon tool not found to equip")
+        popup3s("❌ Dragon Talon NOT found (equip fail)")
+        return nil
+    end
+
+    task.wait(0.25) -- chờ UI render
+    local line = findMasteryLine(2.5)
+
+    if not line then
+        setStatus("MASTERY", "Mastery UI not found")
+        popup3s("⚠️ Mastery UI not found")
+        return nil
+    end
+
+    local m = parseMasteryFromText(line)
+    setStatus("MASTERY", tostring(line) .. " | parsed=" .. tostring(m))
+    popup3s("✅ " .. line)
+
+    return m
+end
+
+-- ===== Script A / B =====
 local function runScriptA()
     loadstring(game:HttpGet("https://raw.githubusercontent.com/phongdeptraur/draco/refs/heads/main/source-draco.lua"))()
     setStatus("A", "Running Script A...")
 end
 
--- ===== MAIN =====
+local function runScriptB()
+    -- TODO: DÁN SCRIPT B VÀO ĐÂY
+    -- loadstring(game:HttpGet("https://..."))()
+    setStatus("B", "Running Script B...")
+end
 
--- SetTeam sớm
+-- ===== MAIN =====
 ensureMarines()
 
--- Đợi nhân vật load rồi set lại nếu chưa ăn
 waitChar()
 if not isMarines() then
     setStatus("TEAM", "Still not Marines after character load -> set again")
     ensureMarines()
 end
 
--- Chạy Script A luôn sau khi chọn team
 runScriptA()
 
--- Sau Script A: nếu chưa có Dragon Talon thì mới mua
+-- Ensure Dragon Talon exists (buy if needed)
+local boughtOrAlready = false
+
 if hasDragonTalon() then
-    setStatus("CHECK", "Dragon Talon already owned -> skip buy")
-    return
+    setStatus("CHECK", "Dragon Talon already owned")
+    boughtOrAlready = true
+else
+    setStatus("CHECK", "No Dragon Talon -> TP + Tween + BuyDragonTalon")
+    local START = Vector3.new(5659.49, 1014.12, -343.54)
+    local GOAL  = Vector3.new(5659.94, 1211.32,  865.08)
+
+    tpTo(START)
+    task.wait(0.25)
+
+    tweenToWithLagback(START, GOAL, 350, 70)
+
+    local ok, result = pcall(function()
+        return comm:InvokeServer("BuyDragonTalon")
+    end)
+
+    if not ok then
+        setStatus("ERR", "Invoke error (BuyDragonTalon)")
+        return
+    end
+
+    setStatus("OK", "BuyDragonTalon result: " .. tostring(result))
+    boughtOrAlready = true
 end
 
-setStatus("CHECK", "No Dragon Talon -> TP + Tween + BuyDragonTalon")
+-- After buy success OR already owned -> check mastery -> maybe run B
+if boughtOrAlready then
+    task.wait(0.25) -- cho tool/UI ổn định
+    local mastery = checkDragonTalonMastery()
 
-local START = Vector3.new(5659.49, 1014.12, -343.54)
-local GOAL  = Vector3.new(5659.94, 1211.32,  865.08)
-
-tpTo(START)
-task.wait(0.25)
-
-tweenToWithLagback(START, GOAL, 350, 70)
-
-local ok, result = pcall(function()
-    return comm:InvokeServer("BuyDragonTalon")
-end)
-
-if not ok then
-    setStatus("ERR", "Invoke error (BuyDragonTalon)")
-    return
+    if mastery and mastery <= 500 then
+        setStatus("COND", "Mastery <= 500 -> run Script B")
+        runScriptB()
+    else
+        setStatus("COND", "Mastery > 500 or unknown -> skip Script B")
+    end
 end
-
-setStatus("OK", "Dragon Talon result: " .. tostring(result))
