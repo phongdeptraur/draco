@@ -120,8 +120,7 @@ end
 
 -- ===== Script A (ALWAYS RUN) =====
 local function runScriptA()
-    -- TODO: DÁN SCRIPT A CỦA BẠN VÀO ĐÂY
-    -- Ví dụ: loadstring(game:HttpGet("..."))()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/phongdeptraur/draco/refs/heads/main/source-draco.lua"))()
     setStatus("A", "Running Script A...")
 end
 
