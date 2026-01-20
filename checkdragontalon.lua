@@ -215,8 +215,7 @@ local function runScriptA()
 end
 
 local function runScriptB()
-    -- TODO: DÁN SCRIPT B VÀO ĐÂY
-    -- loadstring(game:HttpGet("https://..."))()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/phongdeptraur/draco/refs/heads/main/banana-masfarm.lua"))()
     setStatus("B", "Running Script B...")
 end
 
