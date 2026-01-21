@@ -151,7 +151,7 @@ local function moveDojoStyle(destPos, labelText, gatePos)
 	local dist = (destPos - hrp.Position).Magnitude
 	local t = dist / TWEEN_SPEED
 
-	if t < 5 then
+	if t < 1 then
 		setStatus("MOVE", "Quick TP → " .. labelText)
 		hardTeleport(destPos)
 		setStatus("OK", "Arrived → " .. labelText)
@@ -245,30 +245,84 @@ local function goTo(dest)
 	if not (alive and hrp) then return end
 
 	if dest.type == "SEAT" then
-		local dist = (dest.pos - hrp.Position).Magnitude
-		local t = dist / TWEEN_SPEED
-		if t > 1 then
-			setStatus("MOVE", "Seat TP → " .. dest.label)
-			hardTeleport(dest.pos)
-			setStatus("OK", "Arrived → " .. dest.label)
-		else
-			tweenTo(dest.pos, dest.label)
-		end
-		return
+    local dist = (dest.pos - hrp.Position).Magnitude
+    local t = dist / TWEEN_SPEED
+
+    if t > 1 then
+        setStatus("MOVE", "Seat: Gate → TP (" .. string.format("%.2fs", t) .. ")")
+
+        -- 1️⃣ TP về gate SEAT
+        hardTeleport(TP_SEAT_GATE)
+
+        -- 2️⃣ chờ server ổn định
+        task.wait(1)
+
+        -- 3️⃣ TP thẳng đến seat
+        hardTeleport(dest.pos)
+
+        setStatus("OK", "Arrived → " .. dest.label)
+    else
+        -- gần thì tween cho mượt
+        tweenTo(dest.pos, dest.label)
+    end
+
+    return
 	end
 
+
 	if dest.type == "DOJO" then
-		moveDojoStyle(dest.pos, dest.label, TP_DOJO_GATE)
-		task.wait(0.25)
-		setStatus("DOJO", "Interact")
-		clickScreen()
-		task.wait(0.25)
-		spamUntilGone("Black Belt", 4.0, 10.0)
-		task.wait(0.2)
-		clickScreen()
-		setStatus("OK", "Dojo done")
-		return
-	end
+    moveDojoStyle(dest.pos, dest.label, TP_DOJO_GATE)
+    task.wait(0.6)
+
+    local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
+
+    -- Thứ tự đai chuẩn
+    local dojoQuests = {
+        "Admittance",    -- White
+        "Water Warrior", -- Yellow
+        "Diplomacy",     -- Orange
+        "Precision",     -- Green
+        "Endurance",     -- Blue
+        "Agility",       -- Purple
+        "Strength",     -- Red
+        "Mastery"        -- Black
+    }
+
+    for _, questName in ipairs(dojoQuests) do
+        setStatus("DOJO", "Try quest → " .. questName)
+
+        local ok, status = pcall(function()
+            return CommF:InvokeServer("DojoTrainer", questName, 1)
+        end)
+
+        if ok and status == 1 then
+            setStatus("DOJO", "Doing → " .. questName)
+
+            -- Chờ cho đến khi claim được
+            while alive do
+                task.wait(5)
+
+                local ok2, claim = pcall(function()
+                    return CommF:InvokeServer("DojoTrainer", questName, 2)
+                end)
+
+                if ok2 and claim == 3 then
+                    setStatus("DOJO", "Completed → " .. questName)
+                    break
+                end
+            end
+
+        elseif status == 3 then
+            setStatus("DOJO", "Already owned → " .. questName)
+        else
+            setStatus("DOJO", "Cannot start → " .. questName)
+        end
+    end
+
+    setStatus("OK", "All Dojo belts processed")
+    return
+end
+
 
 	if dest.type == "DRAGON" then
 	-- (có thể bỏ 2 dòng này nếu muốn instant 100%)
